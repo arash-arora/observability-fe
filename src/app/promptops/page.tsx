@@ -71,8 +71,8 @@ export default function PromptOpsPage() {
     (p) =>
       !searchQuery ||
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.agentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.category.toLowerCase().includes(searchQuery.toLowerCase())
+      (p.agentName || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.category || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -262,19 +262,19 @@ export default function PromptOpsPage() {
                           <div className="w-12 h-2 bg-muted rounded-full overflow-hidden">
                             <div
                               className={`h-full ${
-                                prompt.effectiveness >= 0.9
+                                (prompt.effectiveness || 0) >= 0.9
                                   ? "bg-emerald-500"
-                                  : prompt.effectiveness >= 0.8
+                                  : (prompt.effectiveness || 0) >= 0.8
                                   ? "bg-blue-500"
                                   : "bg-amber-500"
                               }`}
-                              style={{ width: `${prompt.effectiveness * 100}%` }}
+                              style={{ width: `${(prompt.effectiveness || 0) * 100}%` }}
                             />
                           </div>
                           <span className="text-sm font-mono font-medium">
-                            {(prompt.effectiveness * 100).toFixed(0)}%
+                            {((prompt.effectiveness || 0) * 100).toFixed(0)}%
                           </span>
-                          {getTrendIcon(prompt.trend)}
+                          {getTrendIcon(prompt.trend || "neutral")}
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-sm">{prompt.avgLatency}</TableCell>
