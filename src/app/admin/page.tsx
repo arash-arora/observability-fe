@@ -201,10 +201,10 @@ export default function AdminPage() {
           <div className="flex items-start gap-3">
             <Lock className="h-5 w-5 text-amber-600 mt-0.5" />
             <div>
-              <h4 className="font-semibold text-amber-900 dark:text-amber-100">
+              <h4 className="font-semibold text-yellow-600 dark:text-yellow-500">
                 Admin Access Required
               </h4>
-              <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
+              <p className="text-sm text-yellow-600 dark:text-yellow-500 mt-1">
                 This page is only accessible to administrators. Changes made here
                 will affect all users' navigation experience.
               </p>

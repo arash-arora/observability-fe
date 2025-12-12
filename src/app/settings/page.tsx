@@ -26,8 +26,8 @@ import {
 export default function SettingsPage() {
   const [settings, setSettings] = useState({
     name: "John Doe",
-    email: "john.doe@example.com",
-    organization: "Acme Corp",
+    email: "john.doe@fractal.ai",
+    organization: "Fractal",
     notifications: {
       email: true,
       slack: false,
