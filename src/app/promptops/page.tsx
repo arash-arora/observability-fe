@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -24,56 +24,78 @@ import {
   Search,
   Filter,
   TrendingUp,
-  TrendingDown,
-  Zap,
-  DollarSign,
   Activity,
   Eye,
   ExternalLink,
-  AlertCircle,
-  CheckCircle2,
   Sparkles,
-  Lightbulb,
-  Users,
+  Loader2,
+  Play,
+  CheckCircle2,
 } from "lucide-react";
 import Link from "next/link";
-import { PROMPTS_DATA, getPromptStats } from "@/lib/mock-data-v2";
+import { promptOpsApi, type Prompt } from "@/lib/promptops-api";
 
 export default function PromptOpsPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [evaluatingIds, setEvaluatingIds] = useState<Set<string>>(new Set());
 
-  const prompts = PROMPTS_DATA;
-  const stats = getPromptStats();
+  // Fetch prompts from API
+  useEffect(() => {
+    fetchPrompts();
+  }, []);
 
-  const getTrendIcon = (trend: string) => {
-    switch (trend) {
-      case "up":
-        return <TrendingUp className="h-3 w-3 text-emerald-600" />;
-      case "down":
-        return <TrendingDown className="h-3 w-3 text-red-600" />;
-      default:
-        return <Activity className="h-3 w-3 text-muted-foreground" />;
+  const fetchPrompts = async () => {
+    setIsLoading(true);
+    try {
+      const response = await promptOpsApi.getPrompts(100, 0);
+      setPrompts(response.prompts);
+    } catch (error) {
+      console.error("Failed to fetch prompts:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const getPatternBadge = (pattern: string) => {
-    const config: Record<string, { variant: any; label: string }> = {
-      "high-performer": { variant: "default", label: "High Performer" },
-      "needs-optimization": { variant: "destructive", label: "Needs Optimization" },
-      experimental: { variant: "secondary", label: "Experimental" },
-      standard: { variant: "outline", label: "Standard" },
-    };
-    const { variant, label} = config[pattern];
-    return <Badge variant={variant}>{label}</Badge>;
+  const handleEvaluate = async (promptId: string) => {
+    setEvaluatingIds(prev => new Set(prev).add(promptId));
+    try {
+      const result = await promptOpsApi.evaluatePrompt(promptId);
+      console.log("Evaluation result:", result);
+      alert(`✓ ${result.message}`);
+      // Refresh prompts to get updated data
+      await fetchPrompts();
+    } catch (error) {
+      console.error("Failed to evaluate prompt:", error);
+      alert(`✗ Failed to evaluate prompt: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setEvaluatingIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(promptId);
+        return newSet;
+      });
+    }
   };
 
   const filteredPrompts = prompts.filter(
     (p) =>
       !searchQuery ||
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.agentName || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.category || "").toLowerCase().includes(searchQuery.toLowerCase())
+      (p.model || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.systemMessage || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Calculate stats
+  const stats = {
+    totalPrompts: prompts.length,
+    highPerformers: prompts.filter(p => p.effectivenessScore >= 0.9).length,
+    avgEffectiveness: prompts.length > 0 
+      ? prompts.reduce((sum, p) => sum + p.effectivenessScore, 0) / prompts.length 
+      : 0,
+    totalExecutions: prompts.reduce((sum, p) => sum + p.executions, 0),
+    totalCost: prompts.reduce((sum, p) => sum + p.avgCost, 0),
+  };
 
   return (
     <div className="space-y-6 animate-slide-up">
@@ -84,24 +106,38 @@ export default function PromptOpsPage() {
             PromptOps
           </h2>
           <p className="text-muted-foreground mt-1.5 text-sm">
-            Monitor and optimize your prompt performance and effectiveness
+            Auto-discovered prompts from your traces - Monitor and evaluate performance
           </p>
         </div>
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
-          New Prompt
+        <Button className="gap-2" onClick={fetchPrompts}>
+          <Activity className="h-4 w-4" />
+          Refresh
         </Button>
       </div>
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="hover-lift overflow-hidden relative group">
-          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+        <Card className="hover-lift">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Prompts
+            </CardTitle>
+            <Sparkles className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalPrompts}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Auto-discovered from traces
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-lift">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               High Performers
             </CardTitle>
-            <Sparkles className="h-4 w-4 text-emerald-600" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.highPerformers}</div>
@@ -111,30 +147,7 @@ export default function PromptOpsPage() {
           </CardContent>
         </Card>
 
-        <Card className="hover-lift overflow-hidden relative group">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Avg Effectiveness
-            </CardTitle>
-            <Zap className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {(stats.avgEffectiveness * 100).toFixed(1)}%
-            </div>
-            <div className="flex items-center gap-2 mt-2">
-              <div className="flex items-center gap-1 text-xs font-medium text-emerald-600">
-                <TrendingUp className="h-3 w-3" />
-                <span>+3.5%</span>
-              </div>
-              <p className="text-xs text-muted-foreground">from last week</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="hover-lift overflow-hidden relative group">
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+        <Card className="hover-lift">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Total Executions
@@ -143,35 +156,28 @@ export default function PromptOpsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {(stats.totalExecutions / 1000).toFixed(1)}K
+              {stats.totalExecutions.toLocaleString()}
             </div>
-            <div className="flex items-center gap-2 mt-2">
-              <div className="flex items-center gap-1 text-xs font-medium text-emerald-600">
-                <TrendingUp className="h-3 w-3" />
-                <span>+12.3%</span>
-              </div>
-              <p className="text-xs text-muted-foreground">this week</p>
-            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Across all prompts
+            </p>
           </CardContent>
         </Card>
 
-        <Card className="hover-lift overflow-hidden relative group">
-          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+        <Card className="hover-lift">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Cost
+              Avg Effectiveness
             </CardTitle>
-            <DollarSign className="h-4 w-4 text-amber-600" />
+            <TrendingUp className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${stats.totalCost.toFixed(2)}</div>
-            <div className="flex items-center gap-2 mt-2">
-              <div className="flex items-center gap-1 text-xs font-medium text-emerald-600">
-                <TrendingUp className="h-3 w-3" />
-                <span>+15.2%</span>
-              </div>
-              <p className="text-xs text-muted-foreground">this month</p>
+            <div className="text-2xl font-bold">
+              {(stats.avgEffectiveness * 100).toFixed(1)}%
             </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Overall performance
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -185,7 +191,7 @@ export default function PromptOpsPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search prompts, agents, or categories..."
+            placeholder="Search prompts by name, model, or content..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -196,222 +202,163 @@ export default function PromptOpsPage() {
       {/* Prompts Table */}
       <Card className="overflow-hidden">
         <CardHeader>
-          <CardTitle>All Prompts ({filteredPrompts.length})</CardTitle>
-          <CardDescription>Manage and monitor your prompt library</CardDescription>
+          <CardTitle>Discovered Prompts ({filteredPrompts.length})</CardTitle>
+          <CardDescription>
+            System messages automatically extracted from your traces
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent border-b border-border">
-                  <TableHead className="font-semibold">Prompt Name</TableHead>
-                  <TableHead className="font-semibold">Agent</TableHead>
-                  <TableHead className="font-semibold">Trace Link</TableHead>
-                  <TableHead className="font-semibold">Category</TableHead>
-                  <TableHead className="font-semibold">Pattern</TableHead>
-                  <TableHead className="font-semibold">Effectiveness</TableHead>
-                  <TableHead className="font-semibold">Latency</TableHead>
-                  <TableHead className="font-semibold">Tokens</TableHead>
-                  <TableHead className="font-semibold">Cost</TableHead>
-                  <TableHead className="font-semibold">Executions</TableHead>
-                  <TableHead className="font-semibold text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredPrompts.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
-                      No prompts found
-                    </TableCell>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="w-full overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent border-b border-border">
+                    <TableHead className="font-semibold">Prompt Name</TableHead>
+                    <TableHead className="font-semibold">System Message</TableHead>
+                    <TableHead className="font-semibold">Model</TableHead>
+                    <TableHead className="font-semibold">Trace Link</TableHead>
+                    <TableHead className="font-semibold">Executions</TableHead>
+                    <TableHead className="font-semibold">Effectiveness</TableHead>
+                    <TableHead className="font-semibold">Last Evaluated</TableHead>
+                    <TableHead className="font-semibold text-right">Actions</TableHead>
                   </TableRow>
-                ) : (
-                  filteredPrompts.map((prompt) => (
-                    <TableRow
-                      key={prompt.id}
-                      className="hover:bg-muted/50 cursor-pointer border-b border-border/50 transition-colors"
-                    >
-                      <TableCell className="font-medium">
-                        <Link
-                          href={`/promptops/${prompt.id}`}
-                          className="hover:text-primary transition-colors"
-                        >
-                          {prompt.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Users className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-sm">{prompt.agentName}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Link
-                          href={`/traces/${prompt.traceId}`}
-                          className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 transition-colors"
-                        >
-                          <span className="font-mono">{prompt.traceId}</span>
-                          <ExternalLink className="h-3 w-3" />
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{prompt.category}</Badge>
-                      </TableCell>
-                      <TableCell>{getPatternBadge(prompt.pattern)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="w-12 h-2 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className={`h-full ${
-                                (prompt.effectiveness || 0) >= 0.9
-                                  ? "bg-emerald-500"
-                                  : (prompt.effectiveness || 0) >= 0.8
-                                  ? "bg-blue-500"
-                                  : "bg-amber-500"
-                              }`}
-                              style={{ width: `${(prompt.effectiveness || 0) * 100}%` }}
-                            />
-                          </div>
-                          <span className="text-sm font-mono font-medium">
-                            {((prompt.effectiveness || 0) * 100).toFixed(0)}%
-                          </span>
-                          {getTrendIcon(prompt.trend || "neutral")}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{prompt.avgLatency}</TableCell>
-                      <TableCell className="font-mono text-sm">{prompt.avgTokens}</TableCell>
-                      <TableCell className="font-mono text-sm">{prompt.avgCost}</TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {(prompt.executions || 0).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Link href={`/promptops/${prompt.id}`}>
-                          <Button variant="ghost" size="sm" className="gap-2">
-                            <Eye className="h-3 w-3" />
-                            View
-                          </Button>
-                        </Link>
+                </TableHeader>
+                <TableBody>
+                  {filteredPrompts.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        No prompts discovered yet. Run the extraction job to discover prompts from traces.
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ) : (
+                    filteredPrompts.map((prompt) => (
+                      <TableRow
+                        key={prompt.id}
+                        className="hover:bg-muted/50 border-b border-border/50 transition-colors"
+                      >
+                        <TableCell className="font-medium max-w-[200px]">
+                          <div className="truncate" title={prompt.name}>
+                            {prompt.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {prompt.version}
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-[300px]">
+                          <div className="text-sm truncate" title={prompt.systemMessage}>
+                            {prompt.systemMessage || "N/A"}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{prompt.model || "Unknown"}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {prompt.traceId ? (
+                            <Link
+                              href={`/traces/${prompt.traceId}`}
+                              className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 transition-colors"
+                            >
+                              <span className="font-mono text-xs">
+                                {prompt.traceId.substring(0, 12)}...
+                              </span>
+                              <ExternalLink className="h-3 w-3" />
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">N/A</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-sm">
+                          {prompt.executions.toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="w-12 h-2 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className={`h-full ${
+                                  prompt.effectivenessScore >= 0.9
+                                    ? "bg-emerald-500"
+                                    : prompt.effectivenessScore >= 0.7
+                                    ? "bg-blue-500"
+                                    : "bg-amber-500"
+                                }`}
+                                style={{ width: `${prompt.effectivenessScore * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-sm font-mono font-medium">
+                              {(prompt.effectivenessScore * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {prompt.lastEvaluatedAt
+                            ? new Date(prompt.lastEvaluatedAt).toLocaleDateString()
+                            : "Never"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-2"
+                              onClick={() => handleEvaluate(prompt.id)}
+                              disabled={evaluatingIds.has(prompt.id)}
+                            >
+                              {evaluatingIds.has(prompt.id) ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Evaluating...
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="h-3 w-3" />
+                                  Evaluate
+                                </>
+                              )}
+                            </Button>
+                            <Button variant="ghost" size="sm" className="gap-2">
+                              <Eye className="h-3 w-3" />
+                              View
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Insights Section */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="h-1 w-1 rounded-full bg-primary" />
-              <CardTitle>Pattern Insights</CardTitle>
+      {/* Info Card */}
+      <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
+        <CardContent className="pt-6">
+          <div className="flex items-start gap-3">
+            <Sparkles className="h-5 w-5 text-blue-600 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-blue-900 dark:text-blue-100">
+                Automatic Prompt Discovery
+              </h3>
+              <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                Prompts are automatically discovered from your traces every 2 hours. System messages
+                are extracted from observations and stored for analysis. Click "Evaluate" to run
+                performance and effectiveness validation on any prompt.
+              </p>
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                💡 Tip: The cron job runs automatically, but you can also manually trigger extraction
+                by running: <code className="bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">
+                python3 -m app.jobs.extract_prompts
+              </code>
+              </p>
             </div>
-            <CardDescription>What makes prompts successful</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {[
-                {
-                  pattern: "High Performers",
-                  count: stats.highPerformers,
-                  insight: "Use structured formats with clear instructions",
-                  icon: CheckCircle2,
-                  color: "text-emerald-600",
-                },
-                {
-                  pattern: "Needs Optimization",
-                  count: prompts.filter((p) => p.pattern === "needs-optimization").length,
-                  insight: "Add few-shot examples to improve accuracy",
-                  icon: AlertCircle,
-                  color: "text-amber-600",
-                },
-                {
-                  pattern: "Experimental",
-                  count: prompts.filter((p) => p.pattern === "experimental").length,
-                  insight: "Increase sample size before production",
-                  icon: Sparkles,
-                  color: "text-purple-600",
-                },
-              ].map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors"
-                >
-                  <item.icon className={`h-5 w-5 ${item.color} mt-0.5`} />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium">{item.pattern}</p>
-                      <Badge variant="outline" className="text-xs">
-                        {item.count} prompts
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">{item.insight}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="h-1 w-1 rounded-full bg-primary" />
-              <CardTitle>Improvement Recommendations</CardTitle>
-            </div>
-            <CardDescription>Actions to boost effectiveness</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {[
-                {
-                  action: "Add Context Examples",
-                  prompts: "Email Draft Generator",
-                  impact: "+12% effectiveness",
-                  priority: "High",
-                },
-                {
-                  action: "Reduce Token Usage",
-                  prompts: "Code Generation Assistant",
-                  impact: "-20% cost",
-                  priority: "Medium",
-                },
-                {
-                  action: "Update Instructions",
-                  prompts: "Sentiment Analysis",
-                  impact: "+5% accuracy",
-                  priority: "High",
-                },
-              ].map((rec, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors"
-                >
-                  <Lightbulb className="h-5 w-5 text-blue-600 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium">{rec.action}</p>
-                      <Badge
-                        variant={rec.priority === "High" ? "destructive" : "secondary"}
-                        className="text-xs"
-                      >
-                        {rec.priority}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">{rec.prompts}</p>
-                    <p className="text-xs text-emerald-600 font-medium mt-1">{rec.impact}</p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    Apply
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

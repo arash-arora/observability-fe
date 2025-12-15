@@ -68,35 +68,119 @@ import {
   PolarRadiusAxis,
   Radar,
 } from "recharts";
+import { api, DashboardMetrics, AgentMetrics, SlowestTrace, ToolUsage, UsageTrend, CostByModel, LatencyBucket, CloudDistribution, TokenUsage, ModelPerformance, WorkflowActivity, QualityScore } from "@/lib/api";
 
 export default function Home() {
   const [metrics, setMetrics] = useState<any>(null);
-  const [slowestTraces, setSlowestTraces] = useState<any[]>([]);
+  const [agentMetrics, setAgentMetrics] = useState<AgentMetrics | null>(null);
+  const [slowestTraces, setSlowestTraces] = useState<SlowestTrace[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [activeAgents, setActiveAgents] = useState<any[]>([]);
   const [failures, setFailures] = useState<any[]>([]);
-  const [toolPerf, setToolPerf] = useState<any[]>([]);
+  const [toolPerf, setToolPerf] = useState<ToolUsage[]>([]);
   const [promptStats, setPromptStats] = useState<any>(null);
   const [evalStats, setEvalStats] = useState<any>(null);
   const [topPrompts, setTopPrompts] = useState<any[]>([]);
   const [evalTypes, setEvalTypes] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Chart data states
+  const [usageTrends, setUsageTrends] = useState<UsageTrend[] | null>(null);
+  const [costByModel, setCostByModel] = useState<CostByModel[] | null>(null);
+  const [latencyDist, setLatencyDist] = useState<LatencyBucket[] | null>(null);
+  const [cloudDist, setCloudDist] = useState<CloudDistribution[] | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsage[] | null>(null);
+  const [modelPerf, setModelPerf] = useState<ModelPerformance[] | null>(null);
+  const [workflowActivity, setWorkflowActivity] = useState<WorkflowActivity[] | null>(null);
+  const [qualityScores, setQualityScores] = useState<QualityScore[] | null>(null);
 
   useEffect(() => {
-    // Simulate loading delay for smooth transition
-    setTimeout(() => {
-      setMetrics(generateOverviewMetrics());
-      setSlowestTraces(generateSlowestTraces());
-      setAlerts(generateRecentAlerts());
-      setActiveAgents(generateActiveAgents());
-      setFailures(generateWorkflowFailures());
-      setToolPerf(generateToolPerformance());
-      setPromptStats(getPromptStats());
-      setEvalStats(getEvaluationStats());
-      setTopPrompts(getPromptsByEffectiveness());
-      setEvalTypes(getEvaluationsByType());
-      setIsLoading(false);
-    }, 300);
+    const fetchData = async () => {
+      try {
+        // Fetch ALL data in one batch to avoid duplicate calls
+        const [
+          dashboardMetrics,
+          agentData,
+          slowest,
+          tools,
+          usage,
+          cost,
+          latency,
+          cloud,
+          tokens,
+          models,
+          workflows,
+          quality,
+        ] = await Promise.all([
+          api.getDashboardMetrics(),
+          api.getAgentMetrics(),
+          api.getSlowestTraces(5),
+          api.getToolUsage(),
+          api.getUsageTrends(),
+          api.getCostByModel(),
+          api.getLatencyDistribution(),
+          api.getCloudDistribution(),
+          api.getTokenUsage(),
+          api.getModelPerformance(),
+          api.getWorkflowActivity(),
+          api.getQualityScores(),
+        ]);
+        
+        // Transform API data to match existing component structure
+        const transformedMetrics = {
+          totalTraces: dashboardMetrics.totalTraces,
+          totalCost: `$${dashboardMetrics.totalCost.toFixed(4)}`,
+          avgLatency: `${dashboardMetrics.avgLatency.toFixed(2)}s`,
+          successRate: `${dashboardMetrics.successRate.toFixed(1)}%`,
+          // Agent metrics from real data
+          activeWorkflows: agentData.totalWorkflows,
+          totalSteps: agentData.totalSteps,
+          toolCalls: agentData.toolCalls,
+          workflowSuccessRate: `${dashboardMetrics.successRate.toFixed(1)}%`,
+        };
+        
+        setMetrics(transformedMetrics);
+        setAgentMetrics(agentData);
+        setSlowestTraces(slowest);
+        setToolPerf(tools);
+        
+        // Set chart data
+        setUsageTrends(usage);
+        setCostByModel(cost);
+        setLatencyDist(latency);
+        setCloudDist(cloud);
+        setTokenUsage(tokens);
+        setModelPerf(models);
+        setWorkflowActivity(workflows);
+        setQualityScores(quality);
+        
+        // Keep using mock data for items not yet in API
+        setAlerts(generateRecentAlerts());
+        setActiveAgents(generateActiveAgents());
+        setFailures(generateWorkflowFailures());
+        setPromptStats(getPromptStats());
+        setEvalStats(getEvaluationStats());
+        setTopPrompts(getPromptsByEffectiveness());
+        setEvalTypes(getEvaluationsByType());
+      } catch (error) {
+        console.error("Failed to fetch dashboard metrics:", error);
+        // Fallback to mock data on error
+        setMetrics(generateOverviewMetrics());
+        setSlowestTraces(generateSlowestTraces().slice(0, 5) as any);
+        setAlerts(generateRecentAlerts());
+        setActiveAgents(generateActiveAgents());
+        setFailures(generateWorkflowFailures());
+        setToolPerf(generateToolPerformance() as any);
+        setPromptStats(getPromptStats());
+        setEvalStats(getEvaluationStats());
+        setTopPrompts(getPromptsByEffectiveness());
+        setEvalTypes(getEvaluationsByType());
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
   }, []);
 
   if (isLoading) {
@@ -196,9 +280,9 @@ export default function Home() {
               <div className="h-1 w-1 rounded-full bg-primary" />
               <h3 className="text-lg font-semibold">Usage Trends</h3>
             </div>
-            <UsageTrendsChart />
+            <UsageTrendsChart data={usageTrends} />
             <div className="mt-4">
-              <TracesByCloudChart />
+              <TracesByCloudChart data={cloudDist} />
             </div>
           </div>
 
@@ -209,8 +293,8 @@ export default function Home() {
               <h3 className="text-lg font-semibold">Model Comparisons</h3>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <ModelLatencyChart />
-              <ModelCostComparisonChart />
+              <ModelLatencyChart data={modelPerf} />
+              <ModelCostComparisonChart data={costByModel} />
             </div>
           </div>
 
@@ -221,8 +305,8 @@ export default function Home() {
               <h3 className="text-lg font-semibold">Cost Analysis</h3>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <CostByModelChart />
-              <TokenUsageChart />
+              <CostByModelChart data={costByModel} />
+              <TokenUsageChart data={tokenUsage} />
             </div>
           </div>
 
@@ -233,7 +317,7 @@ export default function Home() {
               <h3 className="text-lg font-semibold">Performance</h3>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <LatencyDistributionChart />
+              <LatencyDistributionChart data={latencyDist} />
               <Card>
                 <CardHeader>
                   <CardTitle>Top Slowest Traces</CardTitle>
@@ -251,13 +335,13 @@ export default function Home() {
                         <div className="flex-1">
                           <p className="text-sm font-medium">{trace.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {trace.model}
+                            {new Date(trace.timestamp).toLocaleString()}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
                           <Clock className="h-3 w-3 text-muted-foreground" />
                           <span className="text-sm font-mono font-medium">
-                            {trace.latency}
+                            {trace.latency.toFixed(2)}s
                           </span>
                         </div>
                       </div>
@@ -275,7 +359,7 @@ export default function Home() {
               <h3 className="text-lg font-semibold">Quality & Feedback</h3>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <QualityScoresChart />
+              <QualityScoresChart data={qualityScores} />
               <Card>
                 <CardHeader>
                   <CardTitle>Recent Alerts</CardTitle>
@@ -354,7 +438,7 @@ export default function Home() {
               <div className="h-1 w-1 rounded-full bg-primary" />
               <h3 className="text-lg font-semibold">Workflow Activity</h3>
             </div>
-            <AgentWorkflowChart />
+            <AgentWorkflowChart data={workflowActivity} />
           </div>
 
           {/* Tool Usage */}
@@ -364,7 +448,7 @@ export default function Home() {
               <h3 className="text-lg font-semibold">Tool Usage</h3>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <ToolUsageChart />
+              <ToolUsageChart data={toolPerf} />
               <Card>
                 <CardHeader>
                   <CardTitle>Tool Performance</CardTitle>
@@ -380,13 +464,13 @@ export default function Home() {
                         <div className="flex-1">
                           <p className="text-sm font-medium">{item.tool}</p>
                           <p className="text-xs text-muted-foreground">
-                            {item.status}
+                            {item.count} calls
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
                           <Clock className="h-3 w-3 text-muted-foreground" />
                           <span className="text-sm font-mono font-medium">
-                            {item.latency}
+                            {item.avgLatency.toFixed(2)}s
                           </span>
                         </div>
                       </div>

@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -15,39 +16,70 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import Link from "next/link";
 import { Search, Filter, ChevronLeft, ChevronRight, Star } from "lucide-react";
-import { useState } from "react";
-
-import { TRACES_DATA, OBSERVATIONS_DATA } from "@/lib/mock-data-v2";
+import { useState, useEffect } from "react";
+import { api, Trace, Observation } from "@/lib/api";
 
 export default function TracesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 10;
+  
+  const [traces, setTraces] = useState<Trace[]>([]);
+  const [observations, setObservations] = useState<Observation[]>([]); // We might need a separate API for ALL observations if we want to show them in the tab, but for now let's leave it empty or fetch some.
+  // The current API endpoint `getTraces` only returns traces. `getTraceObservations` is for a single trace.
+  // The original mock data had a huge list of all observations. 
+  // For this demo, let's just focus on getting Traces working well first, and maybe we can fetch observations for the visible traces if needed, or just leave the Observations tab as "Under Construction" or similar if we don't have a "get all observations" endpoint (though we could add one).
+  // Actually, I'll update the component to just fetch Traces for now. 
 
-  // Filter traces based on search
-  const filteredTraces = TRACES_DATA.filter(
-    (trace) =>
-      trace.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trace.input.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trace.output.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trace.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Pagination logic
-  const totalPages = Math.ceil(filteredTraces.length / rowsPerPage);
-  const currentTraces = filteredTraces.slice(
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const [tracesData, observationsData] = await Promise.all([
+            api.getTraces(100, 0, searchQuery),
+            api.getObservations(100, 0, searchQuery)
+        ]);
+        setTraces(tracesData);
+        setObservations(observationsData);
+      } catch (error) {
+        console.error("Failed to fetch data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    // Debounce search
+    const timer = setTimeout(() => {
+      fetchData();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Pagination logic (Client side pagination for the 100 fetched records)
+  const totalPages = Math.ceil(traces.length / rowsPerPage);
+  const currentTraces = traces.slice(
     (currentPage - 1) * rowsPerPage,
     currentPage * rowsPerPage
   );
+  
+  const formatCost = (cost: number) => `$${cost.toFixed(5)}`;
+  const formatLatency = (lat: number) => `${lat.toFixed(2)}s`;
 
-  // Filter observations based on search
-  const [obsSearchQuery, setObsSearchQuery] = useState("");
-  const filteredObservations = OBSERVATIONS_DATA.filter(
-    (obs) =>
-      obs.name.toLowerCase().includes(obsSearchQuery.toLowerCase()) ||
-      obs.type.toLowerCase().includes(obsSearchQuery.toLowerCase()) ||
-      obs.traceId.toLowerCase().includes(obsSearchQuery.toLowerCase())
-  );
+  // Helper for Observation latency
+  const getObsLatency = (start: string, end: string) => {
+      const s = new Date(start).getTime();
+      const e = new Date(end).getTime();
+      return ((e - s) / 1000).toFixed(2) + "s";
+  }
+
+  // Helper for Observation Cost (Rough estimate)
+  const getObsCost = (obs: Observation) => {
+      const total = (obs.tokens_prompt || 0) + (obs.tokens_completion || 0);
+      return formatCost(total * 0.000002);
+  }
 
   return (
     <div className="space-y-4 animate-slide-up">
@@ -93,20 +125,17 @@ export default function TracesPage() {
               1d
             </Button>
             <Button variant="outline" size="sm">
-              Past 1 day
-            </Button>
-            <Button variant="outline" size="sm">
               Saved Views
             </Button>
             <Button variant="outline" size="sm">
-              Columns 20/32
+              Columns
             </Button>
           </div>
 
           {/* Table */}
           <Card className="overflow-hidden">
             <div className="w-full overflow-x-auto">
-              <Table>
+              <Table className="min-w-[1000px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent border-b border-border">
                     <TableHead className="w-10 align-middle">
@@ -136,14 +165,25 @@ export default function TracesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {currentTraces.length === 0 ? (
+                  {isLoading ? (
+                     <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        Loading traces...
+                      </TableCell>
+                    </TableRow>
+                  ) : currentTraces.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                         No traces found matching your query
                       </TableCell>
                     </TableRow>
                   ) : (
-                    currentTraces.map((trace) => (
+                    currentTraces.map((trace) => {
+                       const env = trace.metadata?.env || trace.metadata?.environment || "prod";
+                       const provider = trace.metadata?.cloudProvider;
+                       const region = trace.metadata?.cloudRegion;
+
+                       return (
                       <TableRow
                         key={trace.id}
                         className="hover:bg-muted/50 cursor-pointer border-b border-border/50"
@@ -152,7 +192,7 @@ export default function TracesPage() {
                           <Star className="h-4 w-4 text-muted-foreground hover:text-primary hover:fill-primary/20 cursor-pointer transition-all duration-200" />
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground align-middle whitespace-nowrap pr-4">
-                          {trace.timestamp}
+                          {new Date(trace.timestamp).toLocaleTimeString()}
                         </TableCell>
                         <TableCell className="align-middle">
                           <Link
@@ -166,47 +206,47 @@ export default function TracesPage() {
                               variant="secondary"
                               className="text-xs font-normal"
                             >
-                              {trace.environment}
+                              {env}
                             </Badge>
                             {/* Cloud provider badge */}
-                            {trace.cloudProvider && (
+                            {provider && (
                               <>
                                 <Badge
                                   variant="outline"
                                   className="text-xs font-normal"
                                 >
-                                  {trace.cloudProvider.toUpperCase()}
+                                  {provider.toUpperCase()}
                                 </Badge>
-                                {trace.cloudRegion && (
+                                {region && (
                                   <span className="text-xs text-muted-foreground">
-                                    {trace.cloudRegion}
+                                    {region}
                                   </span>
                                 )}
                               </>
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="max-w-[300px]">
+                        <TableCell className="max-w-[200px]">
                           <p className="text-sm text-muted-foreground truncate">
                             {trace.input}
                           </p>
                         </TableCell>
-                        <TableCell className="max-w-[300px]">
+                        <TableCell className="max-w-[200px]">
                           <p className="text-sm text-muted-foreground truncate">
                             {trace.output}
                           </p>
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm">
-                          {trace.latency}
+                          {formatLatency(trace.latency)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm">
-                          {trace.cost}
+                          {formatCost(trace.total_cost)}
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm text-muted-foreground">
-                          {trace.tokens}
+                          {trace.total_token_count}
                         </TableCell>
                       </TableRow>
-                    ))
+                    )})
                   )}
                 </TableBody>
               </Table>
@@ -252,9 +292,9 @@ export default function TracesPage() {
                   size="icon"
                   className="h-8 w-8"
                   onClick={() =>
-                    setCurrentPage(Math.min(totalPages, currentPage + 1))
+                    setCurrentPage(Math.min(totalPages || 1, currentPage + 1))
                   }
-                  disabled={currentPage === totalPages || totalPages === 0}
+                  disabled={currentPage >= (totalPages || 1)}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
@@ -262,8 +302,8 @@ export default function TracesPage() {
                   variant="outline"
                   size="icon"
                   className="h-8 w-8"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={currentPage === totalPages || totalPages === 0}
+                  onClick={() => setCurrentPage(totalPages || 1)}
+                  disabled={currentPage >= (totalPages || 1)}
                 >
                   <ChevronRight className="h-4 w-4" />
                   <ChevronRight className="h-4 w-4 -ml-3" />
@@ -274,67 +314,62 @@ export default function TracesPage() {
         </TabsContent>
 
         <TabsContent value="observations" className="space-y-4">
-          {/* Filters and Search Bar */}
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search observations..."
-                value={obsSearchQuery}
-                onChange={(e) => setObsSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-          </div>
-
-          {/* Observations Table */}
+             {/* Observations Table */}
           <Card className="overflow-hidden">
             <div className="w-full overflow-x-auto">
-              <Table>
+              <Table className="min-w-[1000px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent border-b border-border">
-                    <TableHead className="w-10 align-middle">
-                      <Star className="h-4 w-4 text-muted-foreground" />
-                    </TableHead>
-                    <TableHead className="font-semibold">Timestamp</TableHead>
-                    <TableHead className="font-semibold">Name</TableHead>
-                    <TableHead className="font-semibold">Type</TableHead>
+                    <TableHead className="font-semibold whitespace-nowrap">Timestamp ▼</TableHead>
+                    <TableHead className="font-semibold whitespace-nowrap">Name</TableHead>
+                    <TableHead className="font-semibold whitespace-nowrap">Type</TableHead>
+                    <TableHead className="font-semibold whitespace-nowrap">Model</TableHead>
+                    <TableHead className="font-semibold whitespace-nowrap">Input</TableHead>
+                    <TableHead className="font-semibold whitespace-nowrap">Output</TableHead>
                     <TableHead className="font-semibold text-right">Latency</TableHead>
                     <TableHead className="font-semibold text-right">Cost</TableHead>
-                    <TableHead className="font-semibold text-right">Trace ID</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredObservations.length === 0 ? (
+                  {isLoading ? (
+                     <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        Loading observations...
+                      </TableCell>
+                    </TableRow>
+                  ) : observations.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                        No observations found matching your query
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        No observations found
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredObservations.map((obs) => (
+                    observations.map((obs) => (
                       <TableRow
                         key={obs.id}
-                        className="hover:bg-muted/50 cursor-pointer border-b border-border/50 transition-colors duration-200"
+                        className="hover:bg-muted/50 cursor-pointer border-b border-border/50"
                       >
-                        <TableCell>
-                          <Star className="h-4 w-4 text-muted-foreground hover:fill-primary/20 cursor-pointer transition-all duration-200" />
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {obs.timestamp}
+                        <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                          {new Date(obs.start_time).toLocaleTimeString()}
                         </TableCell>
                         <TableCell className="font-medium">{obs.name}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{obs.type}</Badge>
+                            <Badge variant="outline" className="font-mono text-[10px] uppercase">
+                                {obs.type}
+                            </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">{obs.model || "N/A"}</TableCell>
+                        <TableCell className="max-w-[200px]">
+                          <p className="text-sm text-muted-foreground truncate">{obs.input}</p>
+                        </TableCell>
+                        <TableCell className="max-w-[200px]">
+                          <p className="text-sm text-muted-foreground truncate">{obs.output}</p>
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm">
-                          {obs.latency}
+                          {getObsLatency(obs.start_time, obs.end_time)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {obs.cost}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                          {obs.traceId}
+                         <TableCell className="text-right font-mono text-sm">
+                          {getObsCost(obs)}
                         </TableCell>
                       </TableRow>
                     ))
@@ -348,3 +383,4 @@ export default function TracesPage() {
     </div>
   );
 }
+

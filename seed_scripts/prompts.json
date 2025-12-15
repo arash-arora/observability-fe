@@ -1,0 +1,54 @@
+{
+  "prompts": [
+    {
+      "name": "Customer Support Response",
+      "config": {"temperature": 0.7, "max_tokens": 500},
+      "labels": {"category": "support", "priority": "high"}
+    },
+    {
+      "name": "Code Review Assistant",
+      "config": {"temperature": 0.3, "max_tokens": 1000},
+      "labels": {"category": "development", "priority": "medium"}
+    },
+    {
+      "name": "Content Summarization",
+      "config": {"temperature": 0.5, "max_tokens": 300},
+      "labels": {"category": "content", "priority": "medium"}
+    },
+    {
+      "name": "SQL Query Generator",
+      "config": {"temperature": 0.2, "max_tokens": 800},
+      "labels": {"category": "data", "priority": "high"}
+    },
+    {
+      "name": "Email Draft Assistant",
+      "config": {"temperature": 0.8, "max_tokens": 600},
+      "labels": {"category": "communication", "priority": "low"}
+    },
+    {
+      "name": "Product Description Writer",
+      "config": {"temperature": 0.9, "max_tokens": 400},
+      "labels": {"category": "marketing", "priority": "medium"}
+    },
+    {
+      "name": "Bug Report Analyzer",
+      "config": {"temperature": 0.4, "max_tokens": 700},
+      "labels": {"category": "development", "priority": "high"}
+    },
+    {
+      "name": "Meeting Notes Summarizer",
+      "config": {"temperature": 0.6, "max_tokens": 500},
+      "labels": {"category": "productivity", "priority": "low"}
+    },
+    {
+      "name": "Sentiment Analysis",
+      "config": {"temperature": 0.3, "max_tokens": 200},
+      "labels": {"category": "analytics", "priority": "medium"}
+    },
+    {
+      "name": "Translation Assistant",
+      "config": {"temperature": 0.5, "max_tokens": 1000},
+      "labels": {"category": "language", "priority": "high"}
+    }
+  ]
+}

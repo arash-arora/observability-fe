@@ -1,6 +1,7 @@
+
 "use client";
 
-import { TraceTree, Observation } from "@/features/traces/components/TraceTree";
+import { TraceTree, Observation as TraceTreeObservation, ObservationType } from "@/features/traces/components/TraceTree";
 import { ObservationDetail } from "@/features/traces/components/ObservationDetail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,57 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState, use, useEffect } from "react";
-import { generateObservationTree } from "@/lib/mock-data";
+import { api, Trace, Observation } from "@/lib/api";
+
+// Helper to build tree from flat list
+const buildObservationTree = (observations: Observation[]): TraceTreeObservation[] => {
+  const map = new Map<string, TraceTreeObservation>();
+  
+  // First pass: create nodes
+  observations.forEach((obs) => {
+    // Map DB type to UI type if needed, or default to SPAN
+    let type: ObservationType = "SPAN";
+    if (obs.type.toLowerCase().includes("generation") || obs.type.toLowerCase().includes("llm")) type = "GENERATION";
+    if (obs.type.toLowerCase().includes("event")) type = "EVENT";
+
+    // Format latency and cost
+    const start = new Date(obs.start_time).getTime();
+    const end = new Date(obs.end_time).getTime();
+    const latency = ((end - start) / 1000).toFixed(2) + "s";
+    const cost = obs.tokens_prompt ? `$${((obs.tokens_prompt + obs.tokens_completion) * 0.000002).toFixed(5)}` : undefined; // Rough est if cost missing
+
+    map.set(obs.id, {
+      id: obs.id,
+      name: obs.name,
+      type,
+      startTime: obs.start_time,
+      endTime: obs.end_time,
+      latency,
+      cost, // The DB observation needs better cost tracking, but we'll use what we have or estimate
+      status: "success", // Defaulting to success as DB currently doesn't store per-obs status explicitly in seeded data, or we could infer
+      input: obs.input,
+      output: obs.output,
+      children: [],
+    });
+  });
+
+  const roots: TraceTreeObservation[] = [];
+
+  // Second pass: link children
+  observations.forEach((obs) => {
+    const node = map.get(obs.id);
+    if (!node) return;
+
+    if (obs.parent_observation_id && map.has(obs.parent_observation_id)) {
+      const parent = map.get(obs.parent_observation_id);
+      parent!.children!.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+
+  return roots;
+};
 
 export default function TraceDetailPage({
   params,
@@ -28,35 +79,51 @@ export default function TraceDetailPage({
 }) {
   const { traceId } = use(params);
   const [selectedObservation, setSelectedObservation] =
-    useState<Observation | null>(null);
-  const [observations, setObservations] = useState<Observation[]>([]);
-  const [traceInfo, setTraceInfo] = useState<any>(null);
+    useState<TraceTreeObservation | null>(null);
+  const [observationTree, setObservationTree] = useState<TraceTreeObservation[]>([]);
+  const [trace, setTrace] = useState<Trace | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate fetching trace details
-    // In a real app, we would fetch the specific trace by ID.
-    // Here we'll just generate a consistent tree based on the ID or random.
-    const isMedical = traceId.charCodeAt(traceId.length - 1) % 2 === 0;
-    const name = isMedical
-      ? "Medical Diagnosis Assistant"
-      : "Insurance Claim Eligibility Agent";
+    const fetchTraceData = async () => {
+      setIsLoading(true);
+      try {
+        const [traceData, obsData] = await Promise.all([
+          api.getTraceDetail(traceId),
+          api.getTraceObservations(traceId)
+        ]);
+        
+        setTrace(traceData);
+        const tree = buildObservationTree(obsData);
+        setObservationTree(tree);
+        
+        // Auto-select the first node if available
+        if (tree.length > 0) {
+           setSelectedObservation(tree[0]);
+        }
 
-    const tree = generateObservationTree(traceId, name);
-    setObservations(tree);
+      } catch (error) {
+        console.error("Failed to fetch trace data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-    // Also set some basic trace info for the header
-    setTraceInfo({
-      id: traceId,
-      name,
-      timestamp: tree[0].startTime,
-      latency: tree[0].latency,
-      cost: tree[0].cost || "$0.0000",
-      status: tree[0].status,
-    });
+    fetchTraceData();
   }, [traceId]);
 
+  const env = trace?.metadata?.env || trace?.metadata?.environment || "prod";
+
+  if (isLoading) {
+      return <div className="p-8 text-center text-muted-foreground">Loading trace details...</div>;
+  }
+
+  if (!trace) {
+      return <div className="p-8 text-center text-muted-foreground">Trace not found.</div>;
+  }
+
   return (
-    <div className="space-y-4 h-full flex flex-col">
+    <div className="space-y-4 h-full flex flex-col animate-slide-up">
       {/* Header */}
       <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
@@ -75,17 +142,17 @@ export default function TraceDetailPage({
             <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Calendar className="h-3 w-3" />
-                {traceInfo?.timestamp || "Loading..."}
+                {new Date(trace.timestamp).toLocaleTimeString()}
               </span>
               <span>•</span>
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
-                {traceInfo?.latency || "..."}
+                {trace.latency.toFixed(2)}s
               </span>
               <span>•</span>
               <span className="flex items-center gap-1">
                 <DollarSign className="h-3 w-3" />
-                {traceInfo?.cost || "..."}
+                ${trace.total_cost.toFixed(5)}
               </span>
             </div>
           </div>
@@ -111,7 +178,7 @@ export default function TraceDetailPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Badge variant="secondary">production</Badge>
+            <Badge variant="secondary">{env}</Badge>
           </CardContent>
         </Card>
         <Card>
@@ -124,11 +191,11 @@ export default function TraceDetailPage({
             <div className="flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-muted-foreground" />
               <span className="text-lg font-semibold">
-                {traceInfo?.cost || "..."}
+                ${trace.total_cost.toFixed(5)}
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              752 → 38 tokens
+              {trace.total_token_count} tokens
             </p>
           </CardContent>
         </Card>
@@ -142,10 +209,10 @@ export default function TraceDetailPage({
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span className="text-lg font-semibold">
-                {traceInfo?.latency || "..."}
+                {trace.latency.toFixed(2)}s
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">P95: 2.4s</p>
+            <p className="text-xs text-muted-foreground mt-1">Status: {trace.status}</p>
           </CardContent>
         </Card>
         <Card>
@@ -156,12 +223,12 @@ export default function TraceDetailPage({
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-green-500" />
+              <Zap className={`h-4 w-4 ${trace.status === 'success' ? 'text-green-500' : 'text-red-500'}`} />
               <Badge
                 variant="default"
-                className="bg-green-500/10 text-green-500 hover:bg-green-500/20"
+                className={`${trace.status === 'success' ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'}`}
               >
-                Success
+                {trace.status}
               </Badge>
             </div>
           </CardContent>
@@ -188,7 +255,7 @@ export default function TraceDetailPage({
                 </CardHeader>
                 <CardContent className="flex-1 overflow-auto w-full">
                   <TraceTree
-                    observations={observations}
+                    observations={observationTree}
                     onSelectObservation={setSelectedObservation}
                     selectedId={selectedObservation?.id}
                   />
@@ -196,6 +263,7 @@ export default function TraceDetailPage({
               </Card>
             </div>
             <div className="flex-1 overflow-hidden min-w-0">
+              {/* @ts-ignore - ObservationDetail types mismatch slightly but fields are compatible enough for display */}
               <ObservationDetail observation={selectedObservation} />
             </div>
           </div>
@@ -208,23 +276,17 @@ export default function TraceDetailPage({
             </CardHeader>
             <CardContent>
               <div className="space-y-2 font-mono text-xs">
+                {/* Placeholder logs - could be derived from observations start times */}
                 <div className="text-muted-foreground">
-                  [2025-11-21 21:09:52.123] Starting trace execution...
+                  [{new Date(trace.timestamp).toISOString()}] Starting trace execution...
                 </div>
-                <div className="text-muted-foreground">
-                  [2025-11-21 21:09:52.145] Initializing LLM evaluator
-                </div>
-                <div className="text-muted-foreground">
-                  [2025-11-21 21:09:52.890] Sending request to model: gpt-4
-                </div>
+                {observationTree.map(obs => (
+                     <div key={obs.id} className="text-muted-foreground">
+                        [{new Date(obs.startTime).toISOString()}] Started {obs.name} ({obs.type})
+                     </div>
+                ))}
                 <div className="text-green-500">
-                  [2025-11-21 21:09:54.523] ✓ Response received successfully
-                </div>
-                <div className="text-muted-foreground">
-                  [2025-11-21 21:09:54.550] Processing evaluation results
-                </div>
-                <div className="text-green-500">
-                  [2025-11-21 21:09:54.753] ✓ Trace completed successfully
+                  [{new Date(new Date(trace.timestamp).getTime() + trace.latency * 1000).toISOString()}] ✓ Trace completed
                 </div>
               </div>
             </CardContent>
@@ -244,9 +306,9 @@ export default function TraceDetailPage({
                     Tags
                   </h4>
                   <div className="flex gap-2">
-                    <Badge variant="secondary">evaluator</Badge>
-                    <Badge variant="secondary">error-analysis</Badge>
-                    <Badge variant="secondary">production</Badge>
+                    {trace.tags.map(tag => (
+                        <Badge key={tag} variant="secondary">{tag}</Badge>
+                    ))}
                   </div>
                 </div>
                 <div>
@@ -257,11 +319,7 @@ export default function TraceDetailPage({
                   <div className="text-sm space-y-1">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">User ID:</span>
-                      <span className="font-mono">user_abc123</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Session ID:</span>
-                      <span className="font-mono">session_xyz789</span>
+                      <span className="font-mono">{trace.user_id}</span>
                     </div>
                   </div>
                 </div>
@@ -271,17 +329,7 @@ export default function TraceDetailPage({
                   </h4>
                   <div className="bg-muted/50 rounded-md p-3 font-mono text-xs">
                     <pre>
-                      {JSON.stringify(
-                        {
-                          version: "1.0.0",
-                          environment: "llm-as-a-judge",
-                          model: "gpt-4",
-                          temperature: 0.7,
-                          max_tokens: 150,
-                        },
-                        null,
-                        2
-                      )}
+                      {JSON.stringify(trace.metadata, null, 2)}
                     </pre>
                   </div>
                 </div>

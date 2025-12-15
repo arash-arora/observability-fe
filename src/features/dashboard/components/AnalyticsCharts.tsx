@@ -20,37 +20,28 @@ import {
   Legend,
 } from "recharts";
 
-import {
-  generateUsageData,
-  generateCostData,
-  generateLatencyData,
-  generateQualityData,
-  generateTokenData,
-  generateModelLatencyData,
-  generateModelCostComparisonData,
-  generateAgentWorkflowData,
-  generateToolUsageData,
-} from "@/lib/mock-data";
-import { generateTraces, TOTAL_TRACES } from "@/lib/mock-data";
-import { useState, useEffect } from "react";
+import type {
+  UsageTrend,
+  CostByModel,
+  LatencyBucket,
+  CloudDistribution,
+  TokenUsage,
+  ModelPerformance,
+  WorkflowActivity,
+  ToolUsage,
+  QualityScore,
+} from "@/lib/api";
 
-const useChartData = <T,>(generator: () => T) => {
-  const [data, setData] = useState<T | null>(null);
-  useEffect(() => {
-    setData(generator());
-  }, [generator]);
-  return data;
-};
+// All chart components now accept data as props instead of fetching
 
-export function UsageTrendsChart() {
-  const data = useChartData(generateUsageData);
+export function UsageTrendsChart({ data }: { data: UsageTrend[] | null }) {
   if (!data) return null;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Trace Activity Over Time</CardTitle>
-        <CardDescription>Daily trace counts by type</CardDescription>
+        <CardDescription>Daily trace counts (last 7 days)</CardDescription>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={350}>
@@ -90,15 +81,8 @@ export function UsageTrendsChart() {
             />
             <Line
               type="monotone"
-              dataKey="generations"
+              dataKey="tokens"
               stroke="#10b981"
-              strokeWidth={2}
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="spans"
-              stroke="#f59e0b"
               strokeWidth={2}
               dot={false}
             />
@@ -109,15 +93,14 @@ export function UsageTrendsChart() {
   );
 }
 
-export function CostByModelChart() {
-  const data = useChartData(generateCostData);
+export function CostByModelChart({ data }: { data: CostByModel[] | null }) {
   if (!data) return null;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Cost by Model</CardTitle>
-        <CardDescription>Total spend per model (last 30 days)</CardDescription>
+        <CardDescription>Total spend per model</CardDescription>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
@@ -139,7 +122,7 @@ export function CostByModelChart() {
               fontSize={12}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(value) => `$${value}`}
+              tickFormatter={(value) => `$${value.toFixed(4)}`}
             />
             <Tooltip
               contentStyle={{
@@ -147,7 +130,7 @@ export function CostByModelChart() {
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "6px",
               }}
-              formatter={(value) => `$${value}`}
+              formatter={(value: any) => `$${value.toFixed(4)}`}
             />
             <Bar
               dataKey="cost"
@@ -161,15 +144,14 @@ export function CostByModelChart() {
   );
 }
 
-export function LatencyDistributionChart() {
-  const data = useChartData(generateLatencyData);
+export function LatencyDistributionChart({ data }: { data: LatencyBucket[] | null }) {
   if (!data) return null;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Latency Distribution</CardTitle>
-        <CardDescription>Response time breakdown (last 7 days)</CardDescription>
+        <CardDescription>Response time breakdown</CardDescription>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
@@ -188,7 +170,7 @@ export function LatencyDistributionChart() {
             />
             <YAxis
               type="category"
-              dataKey="range"
+              dataKey="bucket"
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
               tickLine={false}
@@ -209,8 +191,7 @@ export function LatencyDistributionChart() {
   );
 }
 
-export function QualityScoresChart() {
-  const data = useChartData(generateQualityData);
+export function QualityScoresChart({ data }: { data: QualityScore[] | null }) {
   if (!data) return null;
 
   return (
@@ -270,15 +251,14 @@ export function QualityScoresChart() {
   );
 }
 
-export function TokenUsageChart() {
-  const data = useChartData(generateTokenData);
+export function TokenUsageChart({ data }: { data: TokenUsage[] | null }) {
   if (!data) return null;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Token Usage</CardTitle>
-        <CardDescription>Input vs output tokens over time</CardDescription>
+        <CardDescription>Total tokens over time (last 7 days)</CardDescription>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
@@ -308,20 +288,13 @@ export function TokenUsageChart() {
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "6px",
               }}
-              formatter={(value) => value.toLocaleString()}
+              formatter={(value: any) => value.toLocaleString()}
             />
-            <Legend />
             <Bar
-              dataKey="input"
+              dataKey="tokens"
               fill="hsl(var(--primary))"
               radius={[4, 4, 0, 0]}
-              name="Input Tokens"
-            />
-            <Bar
-              dataKey="output"
-              fill="#10b981"
-              radius={[4, 4, 0, 0]}
-              name="Output Tokens"
+              name="Total Tokens"
             />
           </BarChart>
         </ResponsiveContainer>
@@ -330,19 +303,8 @@ export function TokenUsageChart() {
   );
 }
 
-export function TracesByCloudChart() {
-  // Compute counts by provider from the small demo traces set
-  const traces = generateTraces(TOTAL_TRACES);
-  const counts: Record<string, number> = {};
-  traces.forEach((t: any) => {
-    const p = t.cloudProvider || "unknown";
-    counts[p] = (counts[p] || 0) + 1;
-  });
-
-  const data = Object.entries(counts).map(([provider, count]) => ({
-    provider,
-    count,
-  }));
+export function TracesByCloudChart({ data }: { data: CloudDistribution[] | null }) {
+  if (!data) return null;
 
   return (
     <Card>
@@ -393,15 +355,14 @@ export function TracesByCloudChart() {
   );
 }
 
-export function ModelLatencyChart() {
-  const data = useChartData(generateModelLatencyData);
+export function ModelLatencyChart({ data }: { data: ModelPerformance[] | null }) {
   if (!data) return null;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Model Latency Comparison</CardTitle>
-        <CardDescription>P50, P95, P99 latency by model</CardDescription>
+        <CardDescription>Average latency by model</CardDescription>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
@@ -431,26 +392,13 @@ export function ModelLatencyChart() {
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "6px",
               }}
-              formatter={(value) => `${value}s`}
+              formatter={(value: any) => `${value.toFixed(2)}s`}
             />
-            <Legend />
             <Bar
-              dataKey="p50"
+              dataKey="avgLatency"
               fill="hsl(var(--primary))"
               radius={[4, 4, 0, 0]}
-              name="P50"
-            />
-            <Bar
-              dataKey="p95"
-              fill="#10b981"
-              radius={[4, 4, 0, 0]}
-              name="P95"
-            />
-            <Bar
-              dataKey="p99"
-              fill="#f59e0b"
-              radius={[4, 4, 0, 0]}
-              name="P99"
+              name="Avg Latency"
             />
           </BarChart>
         </ResponsiveContainer>
@@ -459,8 +407,7 @@ export function ModelLatencyChart() {
   );
 }
 
-export function ModelCostComparisonChart() {
-  const data = useChartData(generateModelCostComparisonData);
+export function ModelCostComparisonChart({ data }: { data: CostByModel[] | null }) {
   if (!data) return null;
 
   return (
@@ -468,7 +415,7 @@ export function ModelCostComparisonChart() {
       <CardHeader>
         <CardTitle>Model Cost Comparison</CardTitle>
         <CardDescription>
-          Cost per request vs cost per 1k tokens
+          Total cost by model
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -491,7 +438,7 @@ export function ModelCostComparisonChart() {
               fontSize={12}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(value) => `$${value}`}
+              tickFormatter={(value) => `$${value.toFixed(4)}`}
             />
             <Tooltip
               contentStyle={{
@@ -499,20 +446,13 @@ export function ModelCostComparisonChart() {
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "6px",
               }}
-              formatter={(value) => `$${value}`}
+              formatter={(value: any) => `$${value.toFixed(4)}`}
             />
-            <Legend />
             <Bar
-              dataKey="costPerRequest"
+              dataKey="cost"
               fill="hsl(var(--primary))"
               radius={[4, 4, 0, 0]}
-              name="Cost/Request"
-            />
-            <Bar
-              dataKey="costPer1kTokens"
-              fill="#10b981"
-              radius={[4, 4, 0, 0]}
-              name="Cost/1k Tokens"
+              name="Total Cost"
             />
           </BarChart>
         </ResponsiveContainer>
@@ -521,8 +461,7 @@ export function ModelCostComparisonChart() {
   );
 }
 
-export function AgentWorkflowChart() {
-  const data = useChartData(generateAgentWorkflowData);
+export function AgentWorkflowChart({ data }: { data: WorkflowActivity[] | null }) {
   if (!data) return null;
 
   return (
@@ -530,7 +469,7 @@ export function AgentWorkflowChart() {
       <CardHeader>
         <CardTitle>Agent Workflow Activity</CardTitle>
         <CardDescription>
-          Workflows, steps, and tool calls over time
+          Workflows over time (last 7 days)
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -571,15 +510,15 @@ export function AgentWorkflowChart() {
             />
             <Line
               type="monotone"
-              dataKey="steps"
+              dataKey="successful"
               stroke="#10b981"
               strokeWidth={2}
               dot={false}
             />
             <Line
               type="monotone"
-              dataKey="tools"
-              stroke="#f59e0b"
+              dataKey="failed"
+              stroke="#ef4444"
               strokeWidth={2}
               dot={false}
             />
@@ -590,8 +529,7 @@ export function AgentWorkflowChart() {
   );
 }
 
-export function ToolUsageChart() {
-  const data = useChartData(generateToolUsageData);
+export function ToolUsageChart({ data }: { data: ToolUsage[] | null }) {
   if (!data) return null;
 
   return (
@@ -599,7 +537,7 @@ export function ToolUsageChart() {
       <CardHeader>
         <CardTitle>Tool Usage & Performance</CardTitle>
         <CardDescription>
-          Most used tools and their average latency
+          Most used tools
         </CardDescription>
       </CardHeader>
       <CardContent>

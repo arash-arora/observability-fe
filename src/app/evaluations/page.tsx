@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -40,15 +40,17 @@ import {
   Workflow,
   Lightbulb,
   Database,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
-import { EVALUATIONS_DATA, getEvaluationStats, EVALUATION_METRICS } from "@/lib/mock-data-v2";
+import { CreateEvaluationDialog } from "@/components/evaluations/CreateEvaluationDialog";
+import { api } from "@/lib/api";
 
 interface EvaluationRun {
   id: string;
   name: string;
   type: string;
-  status: "passed" | "failed" | "warning";
+  status: "passed" | "failed" | "warning" | "completed";
   score: number;
   traces: number;
   lastRun: string;
@@ -68,10 +70,48 @@ export default function EvaluationsPage() {
   const [activeTab, setActiveTab] = useState("agent");
   const [selectedEvaluation, setSelectedEvaluation] = useState<EvaluationRun | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [allEvaluations, setAllEvaluations] = useState<EvaluationRun[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Use centralized evaluation data
-  const allEvaluations: EvaluationRun[] = EVALUATIONS_DATA;
-  const stats = getEvaluationStats();
+  // Fetch evaluations from API
+  useEffect(() => {
+    fetchEvaluations();
+  }, []);
+
+  const fetchEvaluations = async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.getEvaluations(100, 0);
+      const transformed: EvaluationRun[] = response.evaluations.map((e) => ({
+        id: e.id,
+        name: e.name,
+        type: e.type.toLowerCase(),
+        status: ((e.score ?? 0) >= 0.8 ? "passed" : (e.score ?? 0) >= 0.6 ? "warning" : "failed") as any,
+        score: e.score || 0,
+        traces: 0,
+        lastRun: new Date(e.created_at).toLocaleString(),
+        criteria: `Evaluation criteria for ${e.type}`,
+        feedback: (e.score ?? 0) >= 0.8 ? "Good performance" : "Needs improvement",
+        evidence: "Evaluation completed",
+        traceList: [],
+      }));
+      setAllEvaluations(transformed);
+    } catch (error) {
+      console.error("Failed to fetch evaluations:", error);
+      setAllEvaluations([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Calculate stats from evaluations
+  const stats = {
+    totalEvaluations: allEvaluations.length,
+    avgScore: allEvaluations.length > 0 ? allEvaluations.reduce((sum, e) => sum + e.score, 0) / allEvaluations.length : 0,
+    passed: allEvaluations.filter((e) => e.status === "passed").length,
+    failed: allEvaluations.filter((e) => e.status === "failed" || e.status === "warning").length,
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -230,12 +270,18 @@ export default function EvaluationsPage() {
             Evaluate and score your agents, workflows, and RAG systems
           </p>
         </div>
-        <Button className="gap-2">
+        <Button className="gap-2" onClick={() => setShowCreateDialog(true)}>
           <Plus className="h-4 w-4" />
           New Evaluation
         </Button>
       </div>
 
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <>
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="hover-lift">
@@ -735,6 +781,17 @@ export default function EvaluationsPage() {
           </div>
         </div>
       )}
+      </>
+      )}
+
+      {/* Create Evaluation Dialog */}
+      <CreateEvaluationDialog
+        open={showCreateDialog}
+        onOpenChange={setShowCreateDialog}
+        onEvaluationCreated={() => {
+          fetchEvaluations();
+        }}
+      />
     </div>
   );
 }
